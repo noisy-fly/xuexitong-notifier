@@ -66,6 +66,11 @@ public final class EndpointConfigTest {
                 IllegalArgumentException.class,
                 () -> new EndpointConfig("https://ntfy.example.com", "bad/topic", "")
         );
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new EndpointConfig("http://ntfy.example.com", "topic_name", "")
+        );
     }
 }
+
 

@@ -51,6 +51,9 @@ public final class EndpointConfig {
             if (uri.getHost() == null || uri.getHost().isBlank()) {
                 throw new IllegalArgumentException("服务器地址缺少主机名");
             }
+            if (scheme.equals("http") && !isPrivateHost(uri.getHost())) {
+                throw new IllegalArgumentException("公网服务器地址必须使用 HTTPS");
+            }
             String path = uri.getPath();
             if (path != null && !(path.isEmpty() || path.equals("/"))) {
                 throw new IllegalArgumentException("服务器地址不能包含路径");
@@ -86,6 +89,45 @@ public final class EndpointConfig {
             throw new IllegalArgumentException("访问令牌格式不正确");
         }
         return candidate;
+    }
+
+    private static boolean isPrivateHost(String rawHost) {
+        String host = rawHost.toLowerCase(Locale.ROOT);
+        if (host.equals("localhost") || host.endsWith(".localhost") || host.endsWith(".local")) {
+            return true;
+        }
+        if (host.contains(":")) {
+            return host.equals("::1")
+                    || host.startsWith("fc")
+                    || host.startsWith("fd")
+                    || host.startsWith("fe8")
+                    || host.startsWith("fe9")
+                    || host.startsWith("fea")
+                    || host.startsWith("feb");
+        }
+        String[] parts = host.split("\\.", -1);
+        if (parts.length != 4) {
+            return false;
+        }
+        int[] octets = new int[4];
+        try {
+            for (int index = 0; index < parts.length; index++) {
+                if (parts[index].isEmpty() || parts[index].length() > 3) {
+                    return false;
+                }
+                octets[index] = Integer.parseInt(parts[index]);
+                if (octets[index] < 0 || octets[index] > 255) {
+                    return false;
+                }
+            }
+        } catch (NumberFormatException exception) {
+            return false;
+        }
+        return octets[0] == 10
+                || octets[0] == 127
+                || (octets[0] == 169 && octets[1] == 254)
+                || (octets[0] == 172 && octets[1] >= 16 && octets[1] <= 31)
+                || (octets[0] == 192 && octets[1] == 168);
     }
 }
 
