@@ -351,6 +351,10 @@ class ChaoxingClient:
         if not self._logged_in:
             self.login()
 
+    def invalidate_session(self) -> None:
+        self._logged_in = False
+        self._user_info = None
+
     def user_info(self) -> UserInfo:
         if self._user_info is None:
             self.ensure_login()
