@@ -1,0 +1,19 @@
+[Unit]
+Description=Xuexitong message notifier
+After=network-online.target napcat.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/xuexitong-notifier
+EnvironmentFile=/opt/xuexitong-notifier/.env
+ExecStart=/opt/xuexitong-notifier/.venv/bin/xuexitong-notifier run
+Restart=always
+RestartSec=15
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
+

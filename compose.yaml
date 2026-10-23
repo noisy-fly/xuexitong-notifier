@@ -1,0 +1,11 @@
+services:
+  notifier:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./config.json:/app/config.json:ro
+      - ./data:/app/data
+    network_mode: host
+    command: ["xuexitong-notifier", "run"]
+

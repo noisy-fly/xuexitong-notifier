@@ -1,0 +1,19 @@
+{
+  "poll_interval": 60,
+  "data_dir": "data",
+  "notify_existing": false,
+  "ntfy": {
+    "enabled": true,
+    "server_url": "https://ntfy.sh",
+    "topic_env": "NTFY_TOPIC",
+    "token_env": "NTFY_TOKEN"
+  },
+  "qq": {
+    "enabled": false,
+    "base_url": "http://127.0.0.1:4300",
+    "target_name": "腾飞辉煌",
+    "target_user_id": null,
+    "token_env": "ONEBOT_TOKEN"
+  }
+}
+
