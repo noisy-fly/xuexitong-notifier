@@ -48,6 +48,9 @@ xuexitong-notifier init
 
 默认使用 `https://ntfy.sh`。随机主题等同于访问秘密，不要公开；也可以把 `server_url` 改为自托管 ntfy，并在 `.env` 设置访问令牌。
 
+GitHub Release 提供可由手机下载的部署包，但项目本体不是 Android APK。完整说明见
+[MOBILE_SETUP.md](MOBILE_SETUP.md)。
+
 ## QQ 通知
 
 QQ 通道要求 OneBot 11 HTTP API。默认调用 `http://127.0.0.1:4300`，先按备注或昵称“腾飞辉煌”唯一解析好友；在 `config.json` 填写 `target_user_id` 可直接固定 QQ 号。OneBot 应只绑定回环地址并设置访问令牌。
