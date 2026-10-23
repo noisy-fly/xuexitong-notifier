@@ -25,3 +25,10 @@
 
 构建电脑当前没有连接 ADB 设备。APK 的实体手机安装、通知授权、后台保活和真实系统
 弹窗需要在下载后完成一次实机确认。
+
+## GitHub Release
+
+- `v0.2.0` 已作为正式版本发布：<https://github.com/noisy-fly/xuexitong-notifier/releases/tag/v0.2.0>
+- 从 GitHub 重新下载了 APK、源码 ZIP、wheel 和校验文件
+- 下载后的 3 个发布产物均通过 `SHA256SUMS.txt` 校验
+- 下载后的 APK 再次通过 v2/v3 签名验证，签名证书与本地构建一致
