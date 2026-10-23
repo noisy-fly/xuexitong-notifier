@@ -75,6 +75,8 @@ xuexitong-notifier run
 将仓库放在 `/opt/xuexitong-notifier`，创建虚拟环境并安装后：
 
 ```bash
+# 如果 venv 报 ensurepip 不可用，先安装与 python3 --version 匹配的包。
+# Ubuntu Python 3.14 示例：apt install python3.14-venv
 cp deploy/xuexitong-notifier.service /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable --now xuexitong-notifier
