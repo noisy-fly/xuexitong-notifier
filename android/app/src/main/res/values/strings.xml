@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">学习通提醒</string>
+    <string name="app_subtitle">把服务器上的新消息显示为手机系统通知</string>
+    <string name="connection_section">ntfy 连接</string>
+    <string name="server_label">服务器地址</string>
+    <string name="topic_label">订阅主题</string>
+    <string name="token_label">访问令牌（可选）</string>
+    <string name="start_button">保存并开始监听</string>
+    <string name="stop_button">停止监听</string>
+    <string name="test_button">测试弹窗</string>
+    <string name="security_note">配置仅保存在本机应用私有空间。应用不会保存学习通账号或密码。</string>
+    <string name="status_title_connected">正在监听</string>
+    <string name="status_title_connecting">正在连接</string>
+    <string name="status_title_error">需要检查配置</string>
+    <string name="status_title_stopped">监听已停止</string>
+    <string name="status_stopped">点击“保存并开始监听”即可运行</string>
+    <string name="status_connecting">正在连接 ntfy…</string>
+    <string name="status_connected">连接正常，等待新消息</string>
+    <string name="status_reconnecting">连接中断，将自动重试</string>
+    <string name="status_invalid_config">配置无效，请回到应用检查</string>
+    <string name="listener_notification_title">学习通提醒正在运行</string>
+    <string name="listener_channel_name">后台监听状态</string>
+    <string name="listener_channel_description">显示 ntfy 后台连接状态</string>
+    <string name="message_channel_name">学习通新消息</string>
+    <string name="message_channel_description">收到学习通通知或消息时弹窗</string>
+    <string name="test_notification_title">测试弹窗</string>
+    <string name="test_notification_body">通知权限和系统弹窗工作正常。</string>
+    <string name="test_notification_sent">已发送测试弹窗</string>
+    <string name="notification_permission_required">需要通知权限才能显示弹窗</string>
+</resources>

@@ -41,14 +41,16 @@ xuexitong-notifier init
 
 ## 手机通知弹窗
 
-1. 在 Android/iOS 安装 ntfy 客户端。
-2. 运行 `xuexitong-notifier init`，启用 ntfy。
-3. 在手机客户端订阅命令输出的随机主题。
-4. 给 ntfy 客户端开启系统通知、后台运行和电池优化白名单权限。
+Android 8.0 及以上可以安装 GitHub Release 中的轻量原生 APK：
+
+1. 在服务端配置并启用 ntfy 通道。
+2. 安装 APK，填入相同的服务器地址、主题和可选访问令牌。
+3. 允许通知权限，点击“保存并开始监听”。
+4. 用“测试弹窗”检查系统通知；为持续接收，请允许应用后台运行。
 
 默认使用 `https://ntfy.sh`。随机主题等同于访问秘密，不要公开；也可以把 `server_url` 改为自托管 ntfy，并在 `.env` 设置访问令牌。
 
-GitHub Release 提供可由手机下载的部署包，但项目本体不是 Android APK。完整说明见
+也可以继续使用官方 ntfy Android/iOS 客户端。完整说明见
 [MOBILE_SETUP.md](MOBILE_SETUP.md)。
 
 ## QQ 通知
@@ -103,6 +105,13 @@ PYTHONPATH=src python -m unittest discover -v
 ```
 
 测试使用本地夹具和假 HTTP 会话，不需要真实学习通账号，也不会发送 QQ 或手机通知。
+
+Android 客户端使用 JDK 17 与 Android SDK 35：
+
+```bash
+cd android
+./gradlew testDebugUnitTest lintDebug assembleDebug
+```
 
 ## 限制
 

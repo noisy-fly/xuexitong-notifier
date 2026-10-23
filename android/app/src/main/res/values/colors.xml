@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="surface">#F7F8FA</color>
+    <color name="surface_raised">#FFFFFF</color>
+    <color name="border">#DDE1E7</color>
+    <color name="text_primary">#181B20</color>
+    <color name="text_secondary">#5B6472</color>
+    <color name="text_hint">#89919D</color>
+    <color name="action">#006A63</color>
+    <color name="on_action">#FFFFFF</color>
+    <color name="status_ok">#18794E</color>
+    <color name="status_waiting">#9A6700</color>
+    <color name="status_error">#B42318</color>
+</resources>
