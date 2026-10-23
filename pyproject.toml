@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "xuexitong-notifier"
+version = "0.1.0"
+description = "Read-only Xuexitong message watcher with ntfy and OneBot notifications"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "pycryptodome>=3.20,<4",
+  "requests>=2.31,<3",
+]
+
+[project.scripts]
+xuexitong-notifier = "xuexitong_notifier.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
