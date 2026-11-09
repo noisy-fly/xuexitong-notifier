@@ -9,6 +9,7 @@ import android.content.Context;
 import android.content.Intent;
 import com.noisyfly.xuexitongnotifier.core.HomeworkClient;
 import com.noisyfly.xuexitongnotifier.core.HomeworkMerge;
+import com.noisyfly.xuexitongnotifier.core.ManualSyncOutcome;
 import com.noisyfly.xuexitongnotifier.data.HomeworkStore;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -35,7 +36,18 @@ public final class HomeworkSync extends JobService {
             return saved;
         } catch(Exception e) { return false; }
     }
+    public static synchronized boolean isRunning() { return running; }
+    public static synchronized boolean requestManualSync(Context context) {
+        HomeworkStore store=new HomeworkStore(context); java.util.Set<String> selection=store.selectedCourses();
+        if(selection.isEmpty()) return false;
+        store.prefs().edit().putBoolean("manual_pending",true).putStringSet("manual_selection",selection).remove("manual_result").apply();
+        if(running) return true;
+        clearVerification();
+        if(sync(context,null,true,null)) return true;
+        store.prefs().edit().remove("manual_pending").remove("manual_selection").apply(); return false;
+    }
     public static synchronized boolean sync(Context context, Runnable done) {
+        if(running) return false;
         clearVerification();
         return sync(context,done,true,null);
     }
@@ -57,7 +69,7 @@ public final class HomeworkSync extends JobService {
             HomeworkStore store=new HomeworkStore(app);
             String generation=store.prefs().getString("secret","");
             HomeworkClient client=existing==null?new HomeworkClient():existing;
-            boolean successful=false;
+            boolean successful=false, fetched=false, restricted=false; int errorCount=0;
             try {
                 JSONObject credentials=store.credentials();
                 if (credentials==null) throw new Exception("请先登录学习通");
@@ -71,7 +83,7 @@ public final class HomeworkSync extends JobService {
                             .putLong("retry_after",result.restricted?System.currentTimeMillis()+6*60*60_000L:0).apply();
                 }
                 HomeworkAlarms.schedule(app);
-                successful=!result.restricted;
+                fetched=true; restricted=result.restricted; errorCount=result.errors.size(); successful=!result.restricted;
             } catch(Exception e) {
                 if (!generation.isEmpty() && generation.equals(store.prefs().getString("secret","")) && selection.equals(store.selectedCourses())) {
                     String error=e.getMessage()==null?"同步失败":e.getMessage();
@@ -82,6 +94,10 @@ public final class HomeworkSync extends JobService {
             } finally {
                 synchronized(HomeworkSync.class) {
                     if(client.verificationUrl()!=null && generation.equals(store.prefs().getString("secret","")) && selection.equals(store.selectedCourses())) { pendingVerification=client; pendingGeneration=generation; pendingSelection=selection; }
+                    if(store.prefs().getBoolean("manual_pending",false) && generation.equals(store.prefs().getString("secret",""))
+                            && selection.equals(store.selectedCourses()) && selection.equals(store.prefs().getStringSet("manual_selection",java.util.Collections.emptySet()))
+                            && store.prefs().getString("manual_result","").isEmpty())
+                        store.prefs().edit().putString("manual_result",pendingVerification!=null?"verification":ManualSyncOutcome.classify(fetched,restricted,errorCount)).apply();
                     running=false;
                 }
                 app.sendBroadcast(new Intent(ACTION).setPackage(app.getPackageName()).putExtra("success",successful));

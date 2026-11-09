@@ -53,9 +53,7 @@ public final class MainActivity extends Activity {
     private TextView updateStatusView;
     private boolean loadingCourses;
     private boolean showingTasks;
-    private boolean openAfterManualSync;
-    private long syncStartedAt;
-    private java.util.Set<String> syncSelection;
+    private boolean resumed;
     private String currentCourse;
     private float touchX,touchY;
     private static final int INK=Color.rgb(35,48,44), MUTED=Color.rgb(100,114,106), ACCENT=Color.rgb(38,110,88);
@@ -71,26 +69,46 @@ public final class MainActivity extends Activity {
     }
     @Override public void onBackPressed() { if(currentCourse!=null) { currentCourse=null; render(); } else if(showingTasks) { showingTasks=false; render(); } else super.onBackPressed(); }
     private final BroadcastReceiver receiver=new BroadcastReceiver() {
-        @Override public void onReceive(Context context,Intent intent) {
-            if(openAfterManualSync) {
-                if(intent.getBooleanExtra("success",false) && syncSelection!=null && syncSelection.equals(store.selectedCourses())) openSyncedTasks();
-                else if(HomeworkSync.pendingVerification(MainActivity.this)==null) openAfterManualSync=false;
-            }
-            render();
-        }
+        @Override public void onReceive(Context context,Intent intent) { if(resumed) { render(); showManualResult(); } }
     };
-    private void openSyncedTasks() { openAfterManualSync=false; showingTasks=true; currentCourse=null; }
+    private void showManualResult() {
+        if(!store.prefs().getBoolean("manual_pending",false)) return;
+        if(!store.selectedCourses().equals(store.prefs().getStringSet("manual_selection",java.util.Collections.emptySet()))) {
+            store.prefs().edit().remove("manual_pending").remove("manual_selection").remove("manual_result").apply(); return;
+        }
+        String result=store.prefs().getString("manual_result","");
+        if(result.isEmpty()) {
+            if(HomeworkSync.isRunning() || HomeworkSync.pendingVerification(this)!=null) return;
+            result="failure";
+        }
+        boolean needsVerification="verification".equals(result) && HomeworkSync.pendingVerification(this)!=null;
+        android.content.SharedPreferences.Editor edit=store.prefs().edit().remove("manual_result");
+        if(!needsVerification) edit.remove("manual_pending").remove("manual_selection");
+        edit.apply();
+        if("success".equals(result) || "partial".equals(result)) {
+            showingTasks=true; currentCourse=null; render();
+            boolean partial="partial".equals(result);
+            new AlertDialog.Builder(this).setTitle(partial?"部分获取成功":"获取成功")
+                .setMessage(partial?"部分内容未能获取，请查看同步问题。已打开作业专区。":"已完成同步，正在显示作业专区。")
+                .setPositiveButton("知道了",null).show();
+        } else if(needsVerification) {
+            new AlertDialog.Builder(this).setTitle("需要学习通验证").setMessage("请先完成验证，之后会继续获取作业。")
+                .setPositiveButton("打开验证",(d,w)->startActivity(new Intent(this,VerificationActivity.class))).setNegativeButton("稍后",null).show();
+        } else {
+            new AlertDialog.Builder(this).setTitle("获取失败").setMessage("verification".equals(result)?"学习通暂时限制访问，请稍后重试。":"获取未完成，请检查网络或查看同步问题后重试。")
+                .setPositiveButton("知道了",null).show();
+        }
+    }
     @Override public void onCreate(Bundle state) {
         super.onCreate(state); store=new HomeworkStore(this);
-        if(state!=null) { awaitingInstallPermission=state.getBoolean("install_permission"); openAfterManualSync=state.getBoolean("manual_navigation"); syncStartedAt=state.getLong("manual_started"); java.util.ArrayList<String> selected=state.getStringArrayList("manual_selection"); if(selected!=null) syncSelection=new java.util.HashSet<>(selected); }
+        if(state!=null) awaitingInstallPermission=state.getBoolean("install_permission");
         if(store.prefs().getLong("retry_after",0)==0 && store.prefs().getString("errors","").contains("HTTP 202"))
             store.prefs().edit().putLong("retry_after",System.currentTimeMillis()+6*60*60_000L).apply();
         render();
         if(state==null) checkUpdate(false);
     }
     @Override protected void onSaveInstanceState(Bundle state) {
-        super.onSaveInstanceState(state); state.putBoolean("install_permission",awaitingInstallPermission); state.putBoolean("manual_navigation",openAfterManualSync); state.putLong("manual_started",syncStartedAt);
-        if(syncSelection!=null) state.putStringArrayList("manual_selection",new java.util.ArrayList<>(syncSelection));
+        super.onSaveInstanceState(state); state.putBoolean("install_permission",awaitingInstallPermission);
     }
     @android.annotation.SuppressLint("UnspecifiedRegisterReceiverFlag")
     @Override protected void onStart() {
@@ -99,11 +117,11 @@ public final class MainActivity extends Activity {
         receiverRegistered=true;
     }
     @Override protected void onStop() { if(receiverRegistered) { unregisterReceiver(receiver); receiverRegistered=false; } super.onStop(); }
-    @Override protected void onResume() { super.onResume(); if(store!=null) {
-        if(openAfterManualSync && syncSelection!=null && syncSelection.equals(store.selectedCourses()) && store.prefs().getLong("updated",0)>syncStartedAt && store.prefs().getLong("retry_after",0)==0 && store.prefs().getString("last_error","").isEmpty()) openSyncedTasks();
+    @Override protected void onResume() { super.onResume(); resumed=true; if(store!=null) {
         if(awaitingInstallPermission && getPackageManager().canRequestPackageInstalls()) { awaitingInstallPermission=false; installUpdate(); }
-        if(store.loggedIn()) HomeworkAlarms.schedule(this); render();
+        if(store.loggedIn()) HomeworkAlarms.schedule(this); render(); showManualResult();
     } }
+    @Override protected void onPause() { resumed=false; super.onPause(); }
     @Override public void onRequestPermissionsResult(int requestCode,String[] permissions,int[] results) {
         super.onRequestPermissionsResult(requestCode,permissions,results);
         if(requestCode==42) { HomeworkAlarms.schedule(this); render(); }
@@ -166,7 +184,7 @@ public final class MainActivity extends Activity {
         Switch auto=new Switch(this); auto.setText("应用内定时更新"+(battery?"":"  ·  后台受限，不推荐")); auto.setChecked(store.prefs().getBoolean("auto",false)); root.addView(auto);
         auto.setOnCheckedChangeListener((b,checked)-> {store.prefs().edit().putBoolean("auto",checked).apply(); HomeworkSync.schedule(this);});
         button("更新间隔："+store.prefs().getInt("interval",60)+" 分钟",()->numberDialog("更新间隔（分钟，最少 15）","interval",60,15,10080,()->HomeworkSync.schedule(this)));
-        button("手动获取作业",()->{ if(store.selectedCourses().isEmpty()) { Toast.makeText(this,"请先选择课程",Toast.LENGTH_SHORT).show(); selectCourses(); } else if(HomeworkSync.sync(this,null)) { openAfterManualSync=true; syncStartedAt=System.currentTimeMillis(); syncSelection=store.selectedCourses(); Toast.makeText(this,"正在获取作业…",Toast.LENGTH_SHORT).show(); } else Toast.makeText(this,"正在同步，请稍候",Toast.LENGTH_SHORT).show(); });
+        button("手动获取作业",()->{ if(store.selectedCourses().isEmpty()) { Toast.makeText(this,"请先选择课程",Toast.LENGTH_SHORT).show(); selectCourses(); } else if(HomeworkSync.requestManualSync(this)) { Toast.makeText(this,"正在获取作业，请稍候…",Toast.LENGTH_SHORT).show(); } else Toast.makeText(this,"正在同步，请稍候",Toast.LENGTH_SHORT).show(); });
         Switch popup=new Switch(this); popup.setText("弹窗提醒"+((notifications&&exact)?"":"  ·  权限不足，不推荐")); popup.setChecked(store.prefs().getBoolean("popup",false)); root.addView(popup);
         popup.setOnCheckedChangeListener((b,checked)-> {
             store.prefs().edit().putBoolean("popup",checked).apply();
