@@ -31,6 +31,8 @@ import android.widget.TextView;
 import android.widget.Toast;
 import com.noisyfly.xuexitongnotifier.core.Deadline;
 import com.noisyfly.xuexitongnotifier.core.TaskState;
+import com.noisyfly.xuexitongnotifier.core.UpdateClient;
+import com.noisyfly.xuexitongnotifier.core.UpdatePolicy;
 import com.noisyfly.xuexitongnotifier.core.HomeworkClient;
 import com.noisyfly.xuexitongnotifier.core.HomeworkParser;
 import com.noisyfly.xuexitongnotifier.core.HomeworkMerge;
@@ -46,6 +48,9 @@ public final class MainActivity extends Activity {
     private HomeworkStore store;
     private LinearLayout root;
     private boolean receiverRegistered;
+    private boolean checkingUpdate, pendingManualCheck, awaitingInstallPermission;
+    private String updateStatus="正在检查应用更新…";
+    private TextView updateStatusView;
     private boolean loadingCourses;
     private boolean showingTasks;
     private boolean openAfterManualSync;
@@ -77,13 +82,14 @@ public final class MainActivity extends Activity {
     private void openSyncedTasks() { openAfterManualSync=false; showingTasks=true; currentCourse=null; }
     @Override public void onCreate(Bundle state) {
         super.onCreate(state); store=new HomeworkStore(this);
-        if(state!=null) { openAfterManualSync=state.getBoolean("manual_navigation"); syncStartedAt=state.getLong("manual_started"); java.util.ArrayList<String> selected=state.getStringArrayList("manual_selection"); if(selected!=null) syncSelection=new java.util.HashSet<>(selected); }
+        if(state!=null) { awaitingInstallPermission=state.getBoolean("install_permission"); openAfterManualSync=state.getBoolean("manual_navigation"); syncStartedAt=state.getLong("manual_started"); java.util.ArrayList<String> selected=state.getStringArrayList("manual_selection"); if(selected!=null) syncSelection=new java.util.HashSet<>(selected); }
         if(store.prefs().getLong("retry_after",0)==0 && store.prefs().getString("errors","").contains("HTTP 202"))
             store.prefs().edit().putLong("retry_after",System.currentTimeMillis()+6*60*60_000L).apply();
         render();
+        if(state==null) checkUpdate(false);
     }
     @Override protected void onSaveInstanceState(Bundle state) {
-        super.onSaveInstanceState(state); state.putBoolean("manual_navigation",openAfterManualSync); state.putLong("manual_started",syncStartedAt);
+        super.onSaveInstanceState(state); state.putBoolean("install_permission",awaitingInstallPermission); state.putBoolean("manual_navigation",openAfterManualSync); state.putLong("manual_started",syncStartedAt);
         if(syncSelection!=null) state.putStringArrayList("manual_selection",new java.util.ArrayList<>(syncSelection));
     }
     @android.annotation.SuppressLint("UnspecifiedRegisterReceiverFlag")
@@ -95,6 +101,7 @@ public final class MainActivity extends Activity {
     @Override protected void onStop() { if(receiverRegistered) { unregisterReceiver(receiver); receiverRegistered=false; } super.onStop(); }
     @Override protected void onResume() { super.onResume(); if(store!=null) {
         if(openAfterManualSync && syncSelection!=null && syncSelection.equals(store.selectedCourses()) && store.prefs().getLong("updated",0)>syncStartedAt && store.prefs().getLong("retry_after",0)==0 && store.prefs().getString("last_error","").isEmpty()) openSyncedTasks();
+        if(awaitingInstallPermission && getPackageManager().canRequestPackageInstalls()) { awaitingInstallPermission=false; installUpdate(); }
         if(store.loggedIn()) HomeworkAlarms.schedule(this); render();
     } }
     @Override public void onRequestPermissionsResult(int requestCode,String[] permissions,int[] results) {
@@ -135,10 +142,12 @@ public final class MainActivity extends Activity {
         ScrollView scroll=new ScrollView(this); scroll.setFillViewport(true);
         root=new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL); root.setPadding(dp(22),dp(24),dp(22),dp(32)); root.setBackgroundColor(Color.rgb(246,248,244));
         scroll.addView(root); setContentView(scroll);
+        updateStatusView=null;
         if(!store.loggedIn()) { showingTasks=false; add("作业截止提醒",28,INK); loginScreen(); return; }
         if(showingTasks) { if(currentCourse==null) taskScreen(); else courseScreen(); return; }
         add("学习通 · 作业提醒",27,INK).setTypeface(null,Typeface.BOLD);
         add("让每一次截止，都有准备",14,MUTED);
+        updateStatusView=add(updateStatus,12,MUTED);
         java.util.List<JSONObject> visible=null;
         try { visible=visibleItems(); } catch(Exception ignored) { }
         int count=visible==null?0:visible.size();
@@ -171,6 +180,7 @@ public final class MainActivity extends Activity {
         });
         add("弹窗根据最近一次获取的作业安排，请定期更新。",13,MUTED);
         button("应用状态与权限",this::statusDialog);
+        button("检查应用更新",()->checkUpdate(true));
         syncStatus();
         button("退出登录",()->new AlertDialog.Builder(this).setMessage("退出后将清除本机登录信息和作业缓存，停止提醒。")
                 .setNegativeButton("取消",null).setPositiveButton("退出",(d,w)->{ store.prefs().edit().putBoolean("auto",false).putBoolean("popup",false).apply(); HomeworkSync.schedule(this); HomeworkAlarms.schedule(this); HomeworkSync.clearVerification(); store.logout(); render(); }).show());
@@ -247,8 +257,49 @@ public final class MainActivity extends Activity {
             if(count==0) add("这门课程暂无未截止项目。",15,MUTED);
         } catch(Exception e) { add("本地作业缓存无法读取，请重新获取。",14,Color.RED); }
     }
+    private void setUpdateStatus(String value) { updateStatus=value; if(updateStatusView!=null) updateStatusView.setText(value); }
+    private void checkUpdate(boolean manual) {
+        if(checkingUpdate) { pendingManualCheck|=manual; if(manual) Toast.makeText(this,"正在检查更新…",Toast.LENGTH_SHORT).show(); return; }
+        checkingUpdate=true; pendingManualCheck=manual; setUpdateStatus("正在检查应用更新…"); if(manual) Toast.makeText(this,"正在检查更新…",Toast.LENGTH_SHORT).show();
+        new Thread(()->{
+            UpdatePolicy.Release release=null; String error=null;
+            try { release=UpdateClient.fetch(); } catch(Exception e) { error=e.getMessage(); }
+            final UpdatePolicy.Release result=release; final String failure=error;
+            runOnUiThread(()->{
+                boolean userRequested=pendingManualCheck; checkingUpdate=false; pendingManualCheck=false;
+                if(isFinishing()||isDestroyed()) return;
+                if(result==null) { setUpdateStatus("更新检查失败，请检查网络"); if(userRequested) new AlertDialog.Builder(this).setTitle("检查更新失败").setMessage(failure==null?"请检查网络后重试。":failure).setPositiveButton("知道了",null).show(); return; }
+                try {
+                    String current=getPackageManager().getPackageInfo(getPackageName(),0).versionName;
+                    setUpdateStatus("已检查更新 · 当前 "+current);
+                    if(!UpdatePolicy.shouldPrompt(result.tag,current,getSharedPreferences("updates",MODE_PRIVATE).getString("ignored_release",""),userRequested)) { if(userRequested) Toast.makeText(this,"当前已是最新正式版",Toast.LENGTH_LONG).show(); return; }
+                    setUpdateStatus("发现新版本 "+result.tag);
+                    new AlertDialog.Builder(this).setTitle("发现新版本 "+result.tag).setMessage("当前版本："+current+"\n下载后会校验安装包，再打开系统安装界面。")
+                        .setPositiveButton("立即更新",(d,w)->downloadUpdate(result)).setNeutralButton("忽略此版本",(d,w)->getSharedPreferences("updates",MODE_PRIVATE).edit().putString("ignored_release",result.tag).apply())
+                        .setNegativeButton("以后再说",null).show();
+                } catch(Exception e) { if(userRequested) Toast.makeText(this,"无法识别版本信息",Toast.LENGTH_LONG).show(); }
+            });
+        },"update-check").start();
+    }
+    private void downloadUpdate(UpdatePolicy.Release release) {
+        if(getPackageName().endsWith(".debug")) { new AlertDialog.Builder(this).setTitle("调试版无法覆盖升级").setMessage("请先安装正式版，之后可在正式版中使用应用内更新。正式版与调试版的数据相互独立。" ).setPositiveButton("知道了",null).show(); return; }
+        android.app.ProgressDialog progress=new android.app.ProgressDialog(this); progress.setMessage("正在下载并校验安装包…"); progress.setCancelable(false); progress.show();
+        new Thread(()->{ String error=null; try { UpdateClient.download(release,getCacheDir()); } catch(Exception e) { error=e.getMessage(); }
+            final String failure=error; runOnUiThread(()->{ if(isFinishing()||isDestroyed()) return; progress.dismiss();
+                if(failure!=null) { new AlertDialog.Builder(this).setTitle("更新下载失败").setMessage(failure).setPositiveButton("关闭",null).show(); return; }
+                if(getPackageManager().canRequestPackageInstalls()) installUpdate();
+                else new AlertDialog.Builder(this).setTitle("允许安装更新").setMessage("请在系统设置中允许本应用安装更新，然后返回。")
+                    .setPositiveButton("打开设置",(d,w)->{ awaitingInstallPermission=true; try { startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,Uri.parse("package:"+getPackageName()))); } catch(Exception e) { awaitingInstallPermission=false; Toast.makeText(this,"无法打开安装权限设置",Toast.LENGTH_LONG).show(); } }).setNegativeButton("取消",null).show();
+            }); },"update-download").start();
+    }
+    private void installUpdate() {
+        Uri uri=Uri.parse("content://"+getPackageName()+".updates/update.apk");
+        Intent i=new Intent(Intent.ACTION_VIEW).setDataAndType(uri,"application/vnd.android.package-archive").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        try { startActivity(i); } catch(Exception e) { Toast.makeText(this,"无法打开系统安装界面",Toast.LENGTH_LONG).show(); }
+    }
     private void loginScreen() {
         add("使用学习通账号登录后，查看各课程作业和截止时间。",15,Color.DKGRAY);
+        updateStatusView=add(updateStatus,12,MUTED);
         EditText username=input("学习通账号",false), password=input("密码",true);
         Button login=button("登录",()->{});
         login.setOnClickListener(v->{
@@ -264,6 +315,7 @@ public final class MainActivity extends Activity {
             },"homework-login").start();
         });
         add("账号密码加密保存在本机，用于自动登录。遇到学校验证或验证码时，请先在学习通处理。",13,Color.DKGRAY);
+        button("检查应用更新",()->checkUpdate(true));
     }
     private void selectCourses() {
         if(loadingCourses) return;

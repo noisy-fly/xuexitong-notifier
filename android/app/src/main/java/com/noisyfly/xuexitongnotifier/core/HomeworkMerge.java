@@ -33,7 +33,7 @@ public final class HomeworkMerge {
             JSONObject item=old.getJSONObject(i);
             String course=item.optString("courseKey"); String kind=item.optString("kind","homework");
             if((failedCourses.contains(course) || failedCourses.contains(course+"|"+kind)) && !current.contains(item.optString("id"))) {
-                JSONObject copy=new JSONObject(item.toString()); copy.put("stale",true); result.put(copy);
+                JSONObject copy=new JSONObject(item.toString()); copy.put("stale",true); copy.put("statusStale",true); result.put(copy);
             }
         }
         return result;

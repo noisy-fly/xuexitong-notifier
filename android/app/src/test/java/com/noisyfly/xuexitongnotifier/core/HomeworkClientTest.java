@@ -129,6 +129,22 @@ public class HomeworkClientTest {
         assertEquals(1,result.items.length()); assertEquals("exam",result.items.getJSONObject(0).getString("kind"));
         assertTrue(result.items.getJSONObject(0).getLong("deadline")>0);
     }
+    @Test public void completedExamRemainsVisibleAndIsNotRemindable() throws Exception {
+        HomeworkClient client=mock((url,body)->{
+            if(url.endsWith("/base")) return "var fid = '1'";
+            if(url.contains("courselistdata")) return "stucoursemiddle?courseid=1&clazzid=2&cpi=3\"<a class=\"course-name\" title=\"课程\">";
+            if(url.contains("stucoursemiddle")) return "<input id=\"workEnc\" value=\"w\"><input id=\"enc\" value=\"s\"><input id=\"examEnc\" value=\"e\"><input id=\"openc\" value=\"o\">";
+            if(url.contains("/work/list")) return "暂无作业";
+            if(url.contains("/exam/exam-list")) return "<li><div class='right-content'><p class='overHidden2'>试卷</p><p class='status'>已完成</p><div class='time notOver'>剩余624小时44分钟</div></div></li>";
+            throw new AssertionError("unexpected request");
+        });
+        HomeworkClient.Result result=client.fetch(java.util.Collections.singleton("1:2:3"));
+        assertTrue(result.errors.isEmpty());
+        org.json.JSONObject item=result.items.getJSONObject(0);
+        assertEquals("exam",item.getString("kind")); assertTrue(item.getBoolean("completed"));
+        assertTrue(item.getLong("deadline")>System.currentTimeMillis()); assertTrue(item.getBoolean("estimated"));
+        assertFalse(ReminderPolicy.eligible(item,java.util.Collections.singleton("1:2:3"),System.currentTimeMillis()));
+    }
     @Test public void completedAssignmentIsKeptWithoutOpeningDetail() throws Exception {
         HomeworkClient client=mock((url,body)->{
             if(url.endsWith("/base")) return "var fid = '1'";

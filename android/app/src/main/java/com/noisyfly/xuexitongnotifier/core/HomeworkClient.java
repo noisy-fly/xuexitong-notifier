@@ -157,7 +157,7 @@ public final class HomeworkClient {
                         JSONObject record=new JSONObject(); record.put("course",c.name); record.put("title",exam.title); record.put("status",exam.status);
                         byte[] digest=java.security.MessageDigest.getInstance("SHA-256").digest((courseKey(c)+":exam:"+exam.id).getBytes(StandardCharsets.UTF_8));
                         StringBuilder id=new StringBuilder(); for(byte value:digest) id.append(String.format(java.util.Locale.ROOT,"%02x",value & 255));
-                        record.put("id",id.toString()); record.put("courseKey",courseKey(c)); record.put("kind","exam"); record.put("deadline",exam.deadline); record.put("detailFailed",exam.deadline==0);
+                        record.put("id",id.toString()); record.put("courseKey",courseKey(c)); record.put("kind","exam"); record.put("deadline",exam.deadline); record.put("detailFailed",exam.deadline==0); record.put("completed",exam.completed); record.put("estimated",exam.estimated);
                         if(exam.deadline==0) courseErrors.add(c.name+" / "+exam.title+"：考试截止时间无法识别");
                         courseItems.put(record);
                     }

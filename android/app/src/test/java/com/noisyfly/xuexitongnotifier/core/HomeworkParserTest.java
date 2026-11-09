@@ -69,7 +69,7 @@ public class HomeworkParserTest {
         java.util.List<ExamParser.Exam> exams=ExamParser.parse(html,Instant.parse("2026-11-08T00:00:00Z").toEpochMilli());
         assertEquals(1,exams.size()); assertEquals("英语期末考试",exams.get(0).title);
         assertEquals(Instant.parse("2026-11-10T04:00:00Z").toEpochMilli(),exams.get(0).deadline);
-        assertEquals(0,ExamParser.parse(html.replace("待考试","已完成"),0).size());
+        assertTrue(ExamParser.parse(html.replace("待考试","已完成"),0).get(0).completed);
     }
     @Test public void examWithUnknownEndRemainsVisibleButUnscheduled() {
         String html="<li><p class='overHidden2'>考试</p><p class='status'>未开始</p><a onclick=\"goTest('1','99','0','','2')\">考试</a></li>";

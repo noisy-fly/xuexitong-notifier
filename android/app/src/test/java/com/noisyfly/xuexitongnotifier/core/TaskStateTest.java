@@ -16,4 +16,9 @@ public class TaskStateTest {
         assertEquals("pending",TaskState.next("done"));
         assertEquals("done",TaskState.next("pending"));
     }
+    @Test public void staleExamStatusIsUnknownUnlessManuallyMarked() throws Exception {
+        JSONObject stale=new JSONObject().put("kind","exam").put("stale",true).put("status","未完成");
+        assertEquals(TaskState.UNKNOWN,TaskState.resolve(stale,""));
+        assertEquals(TaskState.DONE,TaskState.resolve(stale,"done"));
+    }
 }

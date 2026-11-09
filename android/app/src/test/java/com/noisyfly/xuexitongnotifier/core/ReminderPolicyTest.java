@@ -23,4 +23,10 @@ public class ReminderPolicyTest {
         assertTrue(ReminderPolicy.eligible(item,Collections.singleton("course"),100));
         assertFalse(ReminderPolicy.eligible(item,Collections.singleton("course"),1000));
     }
+    @Test public void staleStatusDoesNotTriggerReminder() throws Exception {
+        JSONObject item=new JSONObject().put("kind","exam").put("courseKey","course").put("deadline",1000).put("status","未完成").put("stale",true);
+        assertFalse(ReminderPolicy.eligible(item,Collections.singleton("course"),100));
+        item.put("stale",false).put("statusStale",true);
+        assertFalse(ReminderPolicy.eligible(item,Collections.singleton("course"),100));
+    }
 }

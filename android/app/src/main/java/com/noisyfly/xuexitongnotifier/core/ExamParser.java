@@ -11,7 +11,8 @@ public final class ExamParser {
     public static final class Exam {
         public final String id,title,status;
         public final long deadline;
-        Exam(String id,String title,String status,long deadline) { this.id=id; this.title=title; this.status=status; this.deadline=deadline; }
+        public final boolean completed,estimated;
+        Exam(String id,String title,String status,long deadline,boolean estimated) { this.id=id; this.title=title; this.status=status; this.deadline=deadline; this.completed=completed(status); this.estimated=estimated; }
     }
     public static List<Exam> parse(String html,long now) {
         List<Exam> result=new ArrayList<>();
@@ -29,12 +30,13 @@ public final class ExamParser {
             String title=textByClass(block,"overHidden2","exam-title","title");
             String status=textByClass(block,"status","state","tip");
             if(title.isEmpty()) throw new IllegalArgumentException("考试标题无法识别");
-            if(completed(status)) continue;
             String raw=unquote(args[3]); long deadline=0;
             if(raw.matches("[0-9]{13}")) { try { deadline=Long.parseLong(raw); } catch(NumberFormatException ignored) {} }
             else if(raw.matches("[0-9]{10}")) { try { deadline=Long.parseLong(raw)*1000; } catch(NumberFormatException ignored) {} }
             else if(!raw.isEmpty()) deadline=HomeworkParser.deadline("截止时间："+raw,now);
-            result.add(new Exam(id,title,status,deadline));
+            long remaining=HomeworkParser.remaining(block); boolean estimated=deadline==0 && remaining>=0;
+            if(estimated) deadline=now+Math.max(60_000,remaining);
+            result.add(new Exam(id,title,status,deadline,estimated));
         }
         Matcher rows=Pattern.compile("(?is)<li\\b[^>]*>(.*?)</li\\s*>").matcher(html);
         while(rows.find()) {
@@ -42,9 +44,11 @@ public final class ExamParser {
             if(row.contains("goTest")) continue;
             String title=textByClass(row,"overHidden2","exam-title");
             String status=textByClass(row,"status","state","tip");
-            if(title.isEmpty() || status.isEmpty() || completed(status)) continue;
+            if(title.isEmpty() || status.isEmpty()) continue;
             long deadline=HomeworkParser.deadline(row,now);
-            result.add(new Exam("title:"+title,title,status,deadline));
+            long remaining=HomeworkParser.remaining(row); boolean estimated=deadline==0 && remaining>=0;
+            if(estimated) deadline=now+Math.max(60_000,remaining);
+            result.add(new Exam("title:"+title,title,status,deadline,estimated));
         }
         return result;
     }

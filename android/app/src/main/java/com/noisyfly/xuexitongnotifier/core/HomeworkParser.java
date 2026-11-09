@@ -66,7 +66,7 @@ public final class HomeworkParser {
         }
         return out;
     }
-    private static long remaining(String body) {
+    static long remaining(String body) {
         Matcher div=Pattern.compile("<div\\b([^>]*)>",Pattern.CASE_INSENSITIVE).matcher(body);
         while(div.find()) {
             String classes=attribute(div.group(1),"class");

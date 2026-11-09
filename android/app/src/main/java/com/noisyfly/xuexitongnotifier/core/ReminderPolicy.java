@@ -7,7 +7,7 @@ import org.json.JSONObject;
 public final class ReminderPolicy {
     private ReminderPolicy() {}
     public static boolean eligible(JSONObject item,Set<String> selected,long now) {
-        return item!=null && selected.contains(item.optString("courseKey"))
+        return item!=null && !TaskState.staleStatus(item) && selected.contains(item.optString("courseKey"))
                 && !item.optBoolean("completed",false) && item.optBoolean("remindable",true)
                 && !HomeworkParser.isCompleted(item.optString("status")) && item.optLong("deadline",0)>now;
     }
