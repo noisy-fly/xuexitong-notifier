@@ -18,6 +18,7 @@ public final class HomeworkSync extends JobService {
     public static final String ACTION="com.noisyfly.xuexitongnotifier.HOMEWORK_UPDATED";
     private static final int JOB_ID=7331;
     private static boolean running;
+    private static boolean chapterRunning;
     private static HomeworkClient pendingVerification;
     private static String pendingGeneration;
     private static java.util.Set<String> pendingSelection;
@@ -31,15 +32,19 @@ public final class HomeworkSync extends JobService {
         try {
             JSONArray filtered=HomeworkMerge.keepSelected(new JSONArray(store.prefs().getString("items","[]")),selection);
             if(!selection.equals(store.selectedCourses())) for(int i=0;i<filtered.length();i++) filtered.getJSONObject(i).put("stale",true);
-            boolean saved=store.prefs().edit().putStringSet("selected_courses",new java.util.HashSet<>(selection)).putString("items",filtered.toString()).putString("errors","").putString("last_error","").commit();
+            android.content.SharedPreferences.Editor edit=store.prefs().edit().putStringSet("selected_courses",new java.util.HashSet<>(selection)).putString("items",filtered.toString()).putString("errors","").putString("last_error","");
+            for(String key:store.selectedCourses()) if(!selection.contains(key)) edit.remove("chapters_"+key).remove("chapters_error_"+key);
+            boolean saved=edit.commit();
             if(saved) { clearVerification(); schedule(context); HomeworkAlarms.schedule(context); }
             return saved;
         } catch(Exception e) { return false; }
     }
-    public static synchronized boolean isRunning() { return running; }
+    public static synchronized boolean isRunning() { return running || chapterRunning; }
+    public static synchronized boolean beginChapterScan() { if(running || chapterRunning || pendingVerification!=null) return false; chapterRunning=true; return true; }
+    public static synchronized void endChapterScan() { chapterRunning=false; }
     public static synchronized boolean requestManualSync(Context context) {
         HomeworkStore store=new HomeworkStore(context); java.util.Set<String> selection=store.selectedCourses();
-        if(selection.isEmpty()) return false;
+        if(selection.isEmpty() || chapterRunning) return false;
         store.prefs().edit().putBoolean("manual_pending",true).putStringSet("manual_selection",selection).remove("manual_result").apply();
         if(running) return true;
         clearVerification();
@@ -47,19 +52,19 @@ public final class HomeworkSync extends JobService {
         store.prefs().edit().remove("manual_pending").remove("manual_selection").apply(); return false;
     }
     public static synchronized boolean sync(Context context, Runnable done) {
-        if(running) return false;
+        if(running || chapterRunning) return false;
         clearVerification();
         return sync(context,done,true,null);
     }
     public static synchronized boolean resumeVerification(Context context) {
         HomeworkClient client=pendingVerification(context);
-        if(client==null || running) return false;
+        if(client==null || running || chapterRunning) return false;
         client.clearVerificationUrl();
         clearVerification();
         return sync(context,null,true,client);
     }
     private static synchronized boolean sync(Context context, Runnable done, boolean manual, HomeworkClient existing) {
-        if (running) return false;
+        if (running || chapterRunning) return false;
         java.util.Set<String> selection=new HomeworkStore(context).selectedCourses();
         if(selection.isEmpty()) return false;
         if (!manual && new HomeworkStore(context).prefs().getLong("retry_after",0)>System.currentTimeMillis()) return false;
@@ -74,7 +79,7 @@ public final class HomeworkSync extends JobService {
                 JSONObject credentials=store.credentials();
                 if (credentials==null) throw new Exception("请先登录学习通");
                 if(existing==null) client.login(credentials.getString("user"),credentials.getString("password"));
-                HomeworkClient.Result result=client.fetch(selection);
+                HomeworkClient.Result result=client.fetch(selection,store.displaySnapshot(new JSONArray(store.prefs().getString("items","[]"))));
                 synchronized(HomeworkSync.class) {
                     if (generation.isEmpty() || !generation.equals(store.prefs().getString("secret","")) || !selection.equals(store.selectedCourses())) return;
                     String errors=String.join("\n",result.errors);

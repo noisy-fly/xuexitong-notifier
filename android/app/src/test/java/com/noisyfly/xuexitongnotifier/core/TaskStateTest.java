@@ -21,4 +21,8 @@ public class TaskStateTest {
         assertEquals(TaskState.UNKNOWN,TaskState.resolve(stale,""));
         assertEquals(TaskState.DONE,TaskState.resolve(stale,"done"));
     }
+    @Test public void unfinishedItemsSortAheadOfUnknownAndCompleted() {
+        assertTrue(TaskState.rank(TaskState.PENDING)<TaskState.rank(TaskState.UNKNOWN));
+        assertTrue(TaskState.rank(TaskState.UNKNOWN)<TaskState.rank(TaskState.DONE));
+    }
 }

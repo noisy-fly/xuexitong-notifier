@@ -37,6 +37,7 @@ import com.noisyfly.xuexitongnotifier.core.HomeworkClient;
 import com.noisyfly.xuexitongnotifier.core.HomeworkParser;
 import com.noisyfly.xuexitongnotifier.core.HomeworkMerge;
 import com.noisyfly.xuexitongnotifier.data.HomeworkStore;
+import com.noisyfly.xuexitongnotifier.data.ChapterCache;
 import com.noisyfly.xuexitongnotifier.service.HomeworkAlarms;
 import com.noisyfly.xuexitongnotifier.service.HomeworkSync;
 import org.json.JSONArray;
@@ -53,6 +54,7 @@ public final class MainActivity extends Activity {
     private TextView updateStatusView;
     private boolean loadingCourses;
     private boolean showingTasks;
+    private boolean chapterMode;
     private boolean resumed;
     private String currentCourse;
     private float touchX,touchY;
@@ -61,13 +63,14 @@ public final class MainActivity extends Activity {
         if(event.getActionMasked()==MotionEvent.ACTION_DOWN) { touchX=event.getX(); touchY=event.getY(); }
         if(event.getActionMasked()==MotionEvent.ACTION_UP && store!=null && store.loggedIn()) {
             float dx=event.getX()-touchX, dy=event.getY()-touchY;
-            if(Math.abs(dx)>dp(100) && Math.abs(dx)>Math.abs(dy)*1.5f && ((!showingTasks && dx<0)||(showingTasks && dx>0))) {
-                if(showingTasks && currentCourse!=null) currentCourse=null; else showingTasks=!showingTasks; render(); return true;
+            if(Math.abs(dx)>dp(100) && Math.abs(dx)>Math.abs(dy)*1.5f) {
+                if(dx<0 && (!showingTasks || !chapterMode)) { if(!showingTasks) showingTasks=true; else chapterMode=true; currentCourse=null; render(); return true; }
+                if(dx>0 && showingTasks) { if(currentCourse!=null) currentCourse=null; else if(chapterMode) chapterMode=false; else showingTasks=false; render(); return true; }
             }
         }
         return super.dispatchTouchEvent(event);
     }
-    @Override public void onBackPressed() { if(currentCourse!=null) { currentCourse=null; render(); } else if(showingTasks) { showingTasks=false; render(); } else super.onBackPressed(); }
+    @Override public void onBackPressed() { if(currentCourse!=null) { currentCourse=null; render(); } else if(chapterMode) { chapterMode=false; render(); } else if(showingTasks) { showingTasks=false; render(); } else super.onBackPressed(); }
     private final BroadcastReceiver receiver=new BroadcastReceiver() {
         @Override public void onReceive(Context context,Intent intent) { if(resumed) { render(); showManualResult(); } }
     };
@@ -86,7 +89,7 @@ public final class MainActivity extends Activity {
         if(!needsVerification) edit.remove("manual_pending").remove("manual_selection");
         edit.apply();
         if("success".equals(result) || "partial".equals(result)) {
-            showingTasks=true; currentCourse=null; render();
+            showingTasks=true; chapterMode=false; currentCourse=null; render();
             boolean partial="partial".equals(result);
             new AlertDialog.Builder(this).setTitle(partial?"部分获取成功":"获取成功")
                 .setMessage(partial?"部分内容未能获取，请查看同步问题。已打开作业专区。":"已完成同步，正在显示作业专区。")
@@ -152,16 +155,19 @@ public final class MainActivity extends Activity {
     }
     private java.util.List<JSONObject> visibleItems() throws Exception {
         JSONArray items=HomeworkMerge.keepSelected(new JSONArray(store.prefs().getString("items","[]")),store.selectedCourses());
-        java.util.List<JSONObject> visible=new java.util.ArrayList<>(); long now=System.currentTimeMillis();
-        for(int i=0;i<items.length();i++) { JSONObject item=items.getJSONObject(i); if(Deadline.visible(item.optLong("deadline",0),item.optString("status"),now)) visible.add(item); }
-        visible.sort((a,b)->Deadline.compare(a.optLong("deadline",0),b.optLong("deadline",0),now)); return visible;
+        JSONArray chapters=ChapterCache.all(store); java.util.List<JSONObject> visible=new java.util.ArrayList<>(); long now=System.currentTimeMillis();
+        if(!chapterMode) for(int i=0;i<items.length();i++) { JSONObject item=items.getJSONObject(i); if(Deadline.visible(item.optLong("deadline",0),item.optString("status"),now)) visible.add(item); }
+        for(int i=0;i<chapters.length();i++) { JSONObject item=chapters.getJSONObject(i); long deadline=item.optLong("deadline",0);
+            if(chapterMode || (deadline>0 && Deadline.visible(deadline,item.optString("status"),now))) visible.add(item);
+        }
+        visible.sort((x,y)->{ int rank=Integer.compare(TaskState.rank(state(x)),TaskState.rank(state(y))); return rank!=0?rank:Deadline.compare(x.optLong("deadline",0),y.optLong("deadline",0),now); }); return visible;
     }
     private void render() {
         ScrollView scroll=new ScrollView(this); scroll.setFillViewport(true);
         root=new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL); root.setPadding(dp(22),dp(24),dp(22),dp(32)); root.setBackgroundColor(Color.rgb(246,248,244));
         scroll.addView(root); setContentView(scroll);
         updateStatusView=null;
-        if(!store.loggedIn()) { showingTasks=false; add("作业截止提醒",28,INK); loginScreen(); return; }
+        if(!store.loggedIn()) { showingTasks=false; chapterMode=false; add("作业截止提醒",28,INK); loginScreen(); return; }
         if(showingTasks) { if(currentCourse==null) taskScreen(); else courseScreen(); return; }
         add("学习通 · 作业提醒",27,INK).setTypeface(null,Typeface.BOLD);
         add("让每一次截止，都有准备",14,MUTED);
@@ -173,7 +179,7 @@ public final class MainActivity extends Activity {
         TextView overviewTitle=text("作业专区",21,INK); overviewTitle.setTypeface(null,Typeface.BOLD); overview.addView(overviewTitle);
         overview.addView(text(visible==null?"缓存无法读取，请重新获取":count+" 项未截止或截止时间未知",14,MUTED));
         Button open=new Button(this); open.setText("进入作业专区  →"); open.setAllCaps(false); overview.addView(open);
-        open.setOnClickListener(v->{showingTasks=true; currentCourse=null; render();});
+        open.setOnClickListener(v->{showingTasks=true; chapterMode=false; currentCourse=null; render();});
         overview.addView(text("在首页向左滑动，也可以进入",12,MUTED));
         add("同步与提醒",20,INK).setTypeface(null,Typeface.BOLD);
         button("选择课程（已选 "+store.selectedCourses().size()+" 门）",this::selectCourses);
@@ -226,9 +232,10 @@ public final class MainActivity extends Activity {
     }
     private int state(JSONObject item) { return TaskState.resolve(item,store.prefs().getString("manual_"+item.optString("id"),"")); }
     private void taskScreen() {
-        button("← 返回首页",()->{showingTasks=false; render();});
-        add("我的课程",28,INK).setTypeface(null,Typeface.BOLD);
-        add("选择课程，查看未截止的学习任务",14,MUTED);
+        button(chapterMode?"← 返回作业专区":"← 返回首页",()->{if(chapterMode) chapterMode=false; else showingTasks=false; render();});
+        add(chapterMode?"章节测试":"我的课程",28,INK).setTypeface(null,Typeface.BOLD);
+        add(chapterMode?"选择课程，查看章节测试完成情况":"选择课程，查看未截止的学习任务",14,MUTED);
+        if(!chapterMode) button("章节测试专区  →",()->{chapterMode=true; currentCourse=null; render();});
         syncStatus();
         try {
             java.util.List<JSONObject> items=visibleItems(); java.util.Map<String,String> names=courseNames();
@@ -239,8 +246,9 @@ public final class MainActivity extends Activity {
                 int pending=0; for(JSONObject item:items) if(key.equals(item.optString("courseKey")) && state(item)==TaskState.PENDING) pending++;
                 LinearLayout row=card(); row.setPadding(dp(20),dp(20),dp(20),dp(20)); row.setElevation(dp(2));
                 TextView heading=text(name+"  ›",18,INK); heading.setTypeface(null,Typeface.BOLD); row.addView(heading);
-                TextView count=text("未完成  "+pending+" 项",14,ACCENT); count.setPadding(0,dp(9),0,0); row.addView(count);
-                row.setContentDescription(name+"，未完成 "+pending+" 项，点击查看"); row.setClickable(true); row.setOnClickListener(v->{ currentCourse=key; render(); });
+                String summary=chapterMode && !store.prefs().contains("chapters_"+key)?"尚未获取":("未完成  "+pending+" 项"+(chapterMode && !store.prefs().getString("chapters_error_"+key,"").isEmpty()?" · 可能不完整":""));
+                TextView count=text(summary,14,ACCENT); count.setPadding(0,dp(9),0,0); row.addView(count);
+                row.setContentDescription(name+"，"+summary+"，点击查看"); row.setClickable(true); row.setOnClickListener(v->{ currentCourse=key; render(); if(chapterMode && !store.prefs().contains("chapters_"+key)) refreshChapterCourse(key,false); });
             }
         } catch(Exception e) { add("本地作业缓存无法读取，请重新获取。",14,Color.RED); }
     }
@@ -249,6 +257,12 @@ public final class MainActivity extends Activity {
         try {
             String name=courseNames().get(currentCourse); if(name==null || name.isEmpty()) name="课程详情";
             add(name,26,INK).setTypeface(null,Typeface.BOLD);
+            if(chapterMode) {
+                button("更新本课程章节测试",()->refreshChapterCourse(currentCourse,false));
+                button("完整扫描本课程",()->refreshChapterCourse(currentCourse,true));
+                String error=store.prefs().getString("chapters_error_"+currentCourse,""); if(!error.isEmpty()) add(error,13,Color.rgb(150,70,25));
+                add("截止时间与答题时长由平台提供；未提供时显示未知。",13,MUTED);
+            }
             add("已完成 · 未完成 · 状态未知",14,MUTED);
             add("黄色项目可点击标记完成，再次点击标记未完成",13,MUTED);
             int count=0;
@@ -258,12 +272,13 @@ public final class MainActivity extends Activity {
                 int bg=state==TaskState.DONE?Color.rgb(224,244,232):state==TaskState.PENDING?Color.rgb(255,232,231):Color.rgb(255,244,211);
                 int fg=state==TaskState.DONE?Color.rgb(35,114,70):state==TaskState.PENDING?Color.rgb(157,54,54):Color.rgb(137,99,14);
                 LinearLayout row=card(); row.setBackground(surface(bg,18)); row.setPadding(dp(18),dp(16),dp(18),dp(16));
-                String kind=item.optString("kind"); String type="exam".equals(kind)?"考试":"activity".equals(kind)?"课堂活动":"task".equals(kind)?"课程任务":"作业";
+                String kind=item.optString("kind"); String type="exam".equals(kind)?"考试":"activity".equals(kind)?"课堂活动":"task".equals(kind)?"课程任务":"chapter".equals(kind)?"章节测试":"作业";
                 String stateLabel=state==TaskState.DONE?"已完成":state==TaskState.PENDING?"未完成":"状态未知";
                 TextView badge=text(type+"  ·  "+stateLabel+(manual && state!=TaskState.UNKNOWN?"（手动）":""),13,fg); badge.setTypeface(null,Typeface.BOLD); row.addView(badge);
                 TextView title=text(item.optString("title","未命名项目"),17,INK); title.setTypeface(null,Typeface.BOLD); title.setPadding(0,dp(6),0,dp(6)); row.addView(title);
                 long due=item.optLong("deadline",0); String remaining=due==0?"截止时间未知":Deadline.formatRemaining(System.currentTimeMillis(),due)+(item.optBoolean("estimated")?"（约）":"");
                 row.addView(text(remaining,14,fg));
+                if("chapter".equals(kind)) { int minutes=item.optInt("timeLimitMinutes",0); row.addView(text(minutes>0?"答题时长："+minutes+" 分钟":"答题时长未知",13,MUTED)); }
                 String status=item.optString("status"); if(item.optBoolean("stale")) status+=(status.isEmpty()?"":" · ")+"上次记录，请核实";
                 if(!status.isEmpty()) row.addView(text("平台："+status,12,MUTED));
                 if(manual && !item.optString("id").isEmpty()) {
@@ -272,8 +287,38 @@ public final class MainActivity extends Activity {
                     row.setOnClickListener(v->{ String key="manual_"+item.optString("id"); store.prefs().edit().putString(key,TaskState.next(store.prefs().getString(key,""))).apply(); HomeworkAlarms.schedule(this); int y=((ScrollView)root.getParent()).getScrollY(); render(); root.post(()->((ScrollView)root.getParent()).scrollTo(0,y)); });
                 }
             }
-            if(count==0) add("这门课程暂无未截止项目。",15,MUTED);
+            if(count==0) add(chapterMode?(store.prefs().contains("chapters_"+currentCourse)?"暂未识别到章节测试，请留意上方同步提示。":"正在准备获取章节测试。") : "这门课程暂无未截止项目。",15,MUTED);
         } catch(Exception e) { add("本地作业缓存无法读取，请重新获取。",14,Color.RED); }
+    }
+    private void refreshChapterCourse(String key,boolean fullScan) {
+        if(key==null || !store.selectedCourses().contains(key)) return;
+        if(HomeworkSync.pendingVerification(this)!=null) { Toast.makeText(this,"请先完成学习通验证",Toast.LENGTH_LONG).show(); return; }
+        if(!HomeworkSync.beginChapterScan()) { Toast.makeText(this,"正在同步其他内容，请稍后重试",Toast.LENGTH_LONG).show(); return; }
+        Toast.makeText(this,"正在获取本课程章节测试，请稍候…",Toast.LENGTH_LONG).show();
+        String generation=store.prefs().getString("secret","");
+        new Thread(()->{
+            HomeworkClient.Result result=null; String failure=null;
+            try { JSONObject credentials=store.credentials(); if(credentials==null) throw new Exception("请先登录学习通");
+                HomeworkClient client=new HomeworkClient(); client.login(credentials.getString("user"),credentials.getString("password")); result=client.fetchChapterCourse(key,fullScan?new JSONArray():store.displaySnapshot(new JSONArray(store.prefs().getString("chapters_"+key,"[]"))));
+                synchronized(HomeworkSync.class) {
+                    if(generation.equals(store.prefs().getString("secret","")) && store.selectedCourses().contains(key)) {
+                        JSONArray old=new JSONArray(store.prefs().getString("chapters_"+key,"[]"));
+                        JSONArray merged=HomeworkMerge.merge(result.items,old,result.failedCourses);
+                        store.prefs().edit().putString("chapters_"+key,merged.toString()).putString("chapters_error_"+key,result.restricted?"学习通限制访问，请稍后重试；章节测试可能不完整。":String.join("\n",result.errors)).apply();
+                        HomeworkAlarms.schedule(this);
+                    }
+                }
+            } catch(Exception e) { failure=e.getMessage()==null?"获取章节测试失败":e.getMessage(); }
+            finally { HomeworkSync.endChapterScan(); }
+            final HomeworkClient.Result completed=result; final String error=failure;
+            runOnUiThread(()->{ if(isFinishing()||isDestroyed()||!generation.equals(store.prefs().getString("secret",""))) return;
+                if(chapterMode && key.equals(currentCourse)) render();
+                if(error!=null) new AlertDialog.Builder(this).setTitle("章节测试获取失败").setMessage(error).setPositiveButton("知道了",null).show();
+                else if(completed!=null) new AlertDialog.Builder(this).setTitle(completed.errors.isEmpty()?"章节测试获取完成":"章节测试未完整获取")
+                    .setMessage((completed.errors.isEmpty()?"已更新本课程章节测试。":"部分章节未能读取，请稍后重试；未知时间不会安排提醒。")+(completed.reusedChapterSections>0?"\n已跳过 "+completed.reusedChapterSections+" 个已完成小节。":""))
+                    .setPositiveButton("知道了",null).show();
+            });
+        },"chapter-sync").start();
     }
     private void setUpdateStatus(String value) { updateStatus=value; if(updateStatusView!=null) updateStatusView.setText(value); }
     private void checkUpdate(boolean manual) {

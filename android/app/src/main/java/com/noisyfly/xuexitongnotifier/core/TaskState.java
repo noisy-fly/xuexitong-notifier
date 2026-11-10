@@ -3,6 +3,7 @@ import org.json.JSONObject;
 public final class TaskState {
     public static final int UNKNOWN=0, DONE=1, PENDING=2;
     private TaskState() {}
+    public static int rank(int state) { return state==PENDING?0:state==UNKNOWN?1:2; }
     public static boolean staleStatus(JSONObject item) {
         return item.optBoolean("statusStale",false) || ("exam".equals(item.optString("kind")) && item.optBoolean("stale",false) && !item.optBoolean("detailFailed",false));
     }

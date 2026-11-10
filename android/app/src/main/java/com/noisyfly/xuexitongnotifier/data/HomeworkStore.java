@@ -12,6 +12,8 @@ import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
 import org.json.JSONObject;
+import org.json.JSONArray;
+import com.noisyfly.xuexitongnotifier.core.TaskState;
 
 public final class HomeworkStore {
     private static final String ALIAS="homework_credentials_v1";
@@ -40,6 +42,12 @@ public final class HomeworkStore {
         Cipher cipher=Cipher.getInstance("AES/GCM/NoPadding");
         cipher.init(Cipher.DECRYPT_MODE,key(),new GCMParameterSpec(128,Base64.decode(iv,Base64.NO_WRAP)));
         return new JSONObject(new String(cipher.doFinal(Base64.decode(secret,Base64.NO_WRAP)),StandardCharsets.UTF_8));
+    }
+    public JSONArray displaySnapshot(JSONArray records) throws Exception {
+        JSONArray snapshot=new JSONArray();
+        for(int i=0;i<records.length();i++) { JSONObject item=new JSONObject(records.getJSONObject(i).toString());
+            String override=prefs.getString("manual_"+item.optString("id"),""); item.put("_display_done",TaskState.resolve(item,override)==TaskState.DONE); snapshot.put(item); }
+        return snapshot;
     }
     public boolean loggedIn() { return !prefs.getString("secret","").isEmpty(); }
     public java.util.Set<String> selectedCourses() { return new java.util.HashSet<>(prefs.getStringSet("selected_courses",java.util.Collections.emptySet())); }

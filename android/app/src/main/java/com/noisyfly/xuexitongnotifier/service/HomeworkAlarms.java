@@ -15,6 +15,7 @@ import com.noisyfly.xuexitongnotifier.core.Deadline;
 import com.noisyfly.xuexitongnotifier.core.ReminderPolicy;
 import com.noisyfly.xuexitongnotifier.core.TaskState;
 import com.noisyfly.xuexitongnotifier.data.HomeworkStore;
+import com.noisyfly.xuexitongnotifier.data.ChapterCache;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -37,6 +38,7 @@ public final class HomeworkAlarms extends BroadcastReceiver {
         int count=0;
         if (store.loggedIn() && store.prefs().getBoolean("popup",false)) try {
             JSONArray items=new JSONArray(store.prefs().getString("items","[]"));
+            try { ChapterCache.append(items,ChapterCache.all(store)); } catch(org.json.JSONException ignored) { }
             long now=System.currentTimeMillis(); long advance=store.prefs().getInt("advance",60)*60_000L;
             for(int i=0;i<items.length();i++) {
                 JSONObject item=items.getJSONObject(i); long due=item.optLong("deadline");
@@ -45,7 +47,7 @@ public final class HomeworkAlarms extends BroadcastReceiver {
                 if(store.prefs().getBoolean("sent_"+key,false)) continue;
                 String status=item.optString("status");
                 String title=item.optString("title")+("exam".equals(item.optString("kind"))?"（考试）":((status.contains("互评")||status.contains("互評"))?"（待互评）":""));
-                if(status.contains("完成状态未知")) title+="（完成状态未知）";
+                if(status.contains("状态未知")) title+="（完成状态未知）";
                 Intent intent=new Intent(c,HomeworkAlarms.class).putExtra("course",item.optString("course"))
                         .putExtra("title",title).putExtra("deadline",due).putExtra("key",key).putExtra("itemId",item.optString("id")).putExtra("courseKey",item.optString("courseKey"));
                 PendingIntent pi=pending(c,count++,intent); long when=Math.max(now+1000,due-advance);
@@ -62,6 +64,7 @@ public final class HomeworkAlarms extends BroadcastReceiver {
         if (!store.loggedIn() || !store.prefs().getBoolean("popup",false) || !store.selectedCourses().contains(intent.getStringExtra("courseKey")) || key==null || due<=System.currentTimeMillis() || store.prefs().getBoolean("sent_"+key,false)) return;
         try {
             JSONArray current=new JSONArray(store.prefs().getString("items","[]"));
+            try { ChapterCache.append(current,ChapterCache.all(store)); } catch(org.json.JSONException ignored) { }
             String itemId=intent.getStringExtra("itemId");
             if(!ReminderPolicy.isCurrent(current,itemId,due,store.selectedCourses(),System.currentTimeMillis())) return;
             for(int i=0;i<current.length();i++) { JSONObject item=current.optJSONObject(i); if(item!=null && item.optString("id").equals(itemId) && TaskState.resolve(item,store.prefs().getString("manual_"+itemId,""))==TaskState.DONE) return; }

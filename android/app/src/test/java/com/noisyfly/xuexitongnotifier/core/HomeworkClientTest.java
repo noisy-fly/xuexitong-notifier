@@ -230,4 +230,58 @@ public class HomeworkClientTest {
         assertEquals(1,result.items.length()); assertEquals("exam",result.items.getJSONObject(0).getString("kind"));
         assertTrue(result.failedCourses.contains("1:2:3|homework"));
     }
+    @Test public void chapterFetchUsesOnlySelectedCourseAndStopsAtMissingCard() throws Exception {
+        HomeworkClient client=mock((url,body)->{
+            if(url.endsWith("/base")) return "var fid = '1'";
+            if(url.contains("courselistdata")) return "stucoursemiddle?courseid=1&clazzid=2&cpi=3\"<a class=\"course-name\" title=\"课程\">";
+            if(url.contains("stucoursemiddle")) return "<input id=\"enc\" value=\"s\"><input id=\"openc\" value=\"o\">";
+            if(url.contains("studentcourse")) return "<li><div class='chapter_item' id='cur44' title='第一章'></div><i class='icon_yiwanc'></i></li>";
+            if(url.contains("knowledge/cards") && url.contains("num=0")) return "mArg = {\"attachments\":[{\"type\":\"workid\",\"jobid\":\"work-123\",\"property\":{\"title\":\"测验\"}}]};";
+            if(url.contains("knowledge/cards") && url.contains("num=1")) return "no more cards";
+            throw new AssertionError("unexpected request");
+        });
+        HomeworkClient.Result r=client.fetchChapterCourse("1:2:3");
+        assertTrue(r.errors.isEmpty()); assertEquals(1,r.items.length()); assertTrue(r.items.getJSONObject(0).getBoolean("completed"));
+        try { client.fetchChapterCourse("9:9:9"); fail(); } catch(java.io.IOException expected) { }
+    }
+    @Test public void reusesCompletedHomeworkOnlyAfterPlatformConfirmsIt() throws Exception {
+        final int[] detail={0}; final boolean[] complete={true};
+        HomeworkClient client=mock((url,body)->{
+            if(url.endsWith("/base")) return "var fid = '1'";
+            if(url.contains("courselistdata")) return "stucoursemiddle?courseid=1&clazzid=2&cpi=3\"<a class=\"course-name\" title=\"课程\">";
+            if(url.contains("stucoursemiddle")) return "<input id=\"workEnc\" value=\"w\"><input id=\"enc\" value=\"s\"><input id=\"examEnc\" value=\"e\"><input id=\"openc\" value=\"o\">";
+            if(url.contains("/work/list")) return "<li onclick=\"goTask(this);\" data=\"https%3A%2F%2Fmooc1.chaoxing.com%2Fmooc-ans%2Fmooc2%2Fwork%2Ftask%3FworkId%3D1\"><p class='overHidden2'>作业</p><p class='status'>"+(complete[0]?"已完成":"未完成")+"</p></li>";
+            if(url.contains("/work/task")) { detail[0]++; return "截止时间：2030-11-10 10:00"; }
+            if(url.contains("/exam/exam-list")) return "暂无考试";
+            throw new AssertionError("unexpected request");
+        });
+        java.util.Set<String> selected=java.util.Collections.singleton("1:2:3");
+        org.json.JSONArray first=client.fetch(selected).items; assertEquals(1,detail[0]); long deadline=first.getJSONObject(0).getLong("deadline");
+        org.json.JSONArray second=client.fetch(selected,first).items; assertEquals(1,detail[0]); assertEquals(deadline,second.getJSONObject(0).getLong("deadline"));
+        complete[0]=false; org.json.JSONArray third=client.fetch(selected,second).items; assertEquals(2,detail[0]); assertFalse(third.getJSONObject(0).getBoolean("completed"));
+        complete[0]=true; org.json.JSONArray unknown=new org.json.JSONArray(second.toString()); unknown.getJSONObject(0).put("completed",false).put("status","状态未知");
+        client.fetch(selected,unknown); assertEquals(3,detail[0]);
+        org.json.JSONArray stale=new org.json.JSONArray(second.toString()); stale.getJSONObject(0).put("stale",true);
+        client.fetch(selected,stale); assertEquals(4,detail[0]);
+        unknown.getJSONObject(0).put("_display_done",true); client.fetch(selected,unknown); assertEquals(4,detail[0]);
+    }
+    @Test public void completedChapterReusesOnlyFullyScannedCache() throws Exception {
+        final int[] cards={0}; final boolean[] complete={true};
+        HomeworkClient client=mock((url,body)->{
+            if(url.endsWith("/base")) return "var fid = '1'";
+            if(url.contains("courselistdata")) return "stucoursemiddle?courseid=1&clazzid=2&cpi=3\"<a class=\"course-name\" title=\"课程\">";
+            if(url.contains("stucoursemiddle")) return "<input id=\"enc\" value=\"s\"><input id=\"openc\" value=\"o\">";
+            if(url.contains("studentcourse")) return "<li><div class='chapter_item' id='cur44' title='第一章'></div>"+(complete[0]?"<i class='icon_yiwanc'></i>":"")+"</li>";
+            if(url.contains("knowledge/cards") && url.contains("num=0")) { cards[0]++; return "mArg = {\"attachments\":[{\"type\":\"workid\",\"jobid\":\"work-123\",\"property\":{\"title\":\"测验\"}}]};"; }
+            if(url.contains("knowledge/cards") && url.contains("num=1")) return "no more cards";
+            throw new AssertionError("unexpected request");
+        });
+        org.json.JSONArray first=client.fetchChapterCourse("1:2:3").items; assertEquals(1,cards[0]); assertTrue(first.getJSONObject(0).getBoolean("chapterScanned"));
+        HomeworkClient.Result reused=client.fetchChapterCourse("1:2:3",first); org.json.JSONArray second=reused.items; assertEquals(1,cards[0]); assertEquals(1,reused.reusedChapterSections); assertEquals(1,second.length());
+        complete[0]=false; client.fetchChapterCourse("1:2:3",second); assertEquals(2,cards[0]);
+        complete[0]=true; second.getJSONObject(0).put("chapterScanned",false); client.fetchChapterCourse("1:2:3",second); assertEquals(3,cards[0]);
+        second.getJSONObject(0).put("chapterScanned",true).put("completed",false).put("status","状态未知"); client.fetchChapterCourse("1:2:3",second); assertEquals(4,cards[0]);
+        second.getJSONObject(0).put("_display_done",true); org.json.JSONArray manual=client.fetchChapterCourse("1:2:3",second).items;
+        assertEquals(4,cards[0]); assertFalse(manual.getJSONObject(0).has("_display_done"));
+    }
 }

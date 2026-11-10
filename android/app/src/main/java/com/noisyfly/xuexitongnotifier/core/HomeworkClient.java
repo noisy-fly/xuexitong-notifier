@@ -61,6 +61,7 @@ public final class HomeworkClient {
         public final List<String> errors = new ArrayList<>();
         public final java.util.Set<String> failedCourses = new java.util.HashSet<>();
         public boolean restricted;
+        public int reusedChapterSections;
     }
     private String encrypt(String value) throws Exception {
         Cipher cipher=Cipher.getInstance("AES/CBC/PKCS5Padding");
@@ -76,6 +77,51 @@ public final class HomeworkClient {
     private List<HomeworkParser.Course> pendingCourses;
     private int nextCourse;
     private Result completed;
+    private java.util.Map<String,JSONObject> previousHomework;
+    public Result fetchChapterCourse(String selectedKey) throws Exception { return fetchChapterCourse(selectedKey,new JSONArray()); }
+    public Result fetchChapterCourse(String selectedKey,JSONArray previous) throws Exception {
+        Result result=new Result(); HomeworkParser.Course selected=null;
+        for(HomeworkParser.Course course:listCourses()) if(course.key().equals(selectedKey)) { selected=course; break; }
+        if(selected==null) throw new IOException("所选课程不在课程列表中，请重新选择课程");
+        HomeworkParser.Course c=selected; java.util.Set<String> ids=new java.util.HashSet<>(); boolean partial=false; int requests=0;
+        java.util.Map<String,java.util.List<JSONObject>> cachedSections=new java.util.HashMap<>();
+        for(int i=0;i<previous.length();i++) { JSONObject old=previous.optJSONObject(i);
+            if(old==null || old.optString("chapterId").isEmpty() || !selectedKey.equals(old.optString("courseKey")) || !"chapter".equals(old.optString("kind"))) continue;
+            cachedSections.computeIfAbsent(old.optString("chapterId"),k->new java.util.ArrayList<>()).add(old);
+        }
+        try {
+            String params="courseid="+enc(c.id)+"&clazzid="+enc(c.clazz)+"&cpi="+enc(c.cpi);
+            String middle=request("https://mooc1.chaoxing.com/visit/stucoursemiddle?"+params+"&ismooc2=1&v=2",null);
+            String stu=HomeworkParser.hidden(middle,"enc"),op=HomeworkParser.hidden(middle,"openc");
+            if(stu.isEmpty()) throw new IOException("课程章节入口不可用");
+            String tree=request("https://mooc2-ans.chaoxing.com/mooc2-ans/mycourse/studentcourse?"+params+"&enc="+enc(stu)+"&openc="+enc(op)+"&fromMiddle=1&ut=s",null);
+            if(tree.contains("没有此页面访问权限") || tree.contains("用户登录")) throw new IOException("课程章节不可访问");
+            java.util.List<ChapterParser.Section> sections=ChapterParser.sections(tree);
+            if(sections.isEmpty()) throw new IOException("未能识别课程章节");
+            for(ChapterParser.Section section:sections) {
+                java.util.List<JSONObject> cached=cachedSections.getOrDefault(section.id,java.util.Collections.emptyList()); boolean reusable=section.completed;
+                for(JSONObject old:cached) if(!old.optBoolean("chapterScanned",false) || old.optBoolean("stale",false) || !old.optBoolean("_display_done",TaskState.resolve(old,"")==TaskState.DONE)) { reusable=false; break; }
+                if(reusable && !cached.isEmpty()) { result.reusedChapterSections++; for(JSONObject old:cached) { JSONObject copy=new JSONObject(old.toString()); copy.remove("_display_done"); copy.put("completed",true); copy.put("status","已完成"); if(ids.add(copy.getString("id"))) result.items.put(copy); } continue; }
+                int sectionStart=result.items.length(); boolean fullyRead=false; String previousPage=null;
+                for(int order=0;order<8;order++) {
+                    if(++requests>120) { partial=true; break; }
+                    try {
+                        String content=request("https://mooc1.chaoxing.com/knowledge/cards?clazzid="+enc(c.clazz)+"&courseid="+enc(c.id)+"&knowledgeid="+enc(section.id)+"&num="+order+"&ut=s&cpi="+enc(c.cpi)+"&v=20160407-1",null);
+                        if(content.equals(previousPage)) { fullyRead=true; break; }
+                        if(!content.matches("(?s).*mArg\\s*=\\s*\\{.*")) { if(order==0) partial=true; else fullyRead=true; break; }
+                        JSONArray records=ChapterParser.cards(content,c.name,c.key(),section.id,section.title,section.completed);
+                        for(int i=0;i<records.length();i++) { JSONObject item=records.getJSONObject(i); if(ids.add(item.getString("id"))) result.items.put(item); }
+                        previousPage=content; if(order==7) partial=true;
+                    } catch(Restricted ex) { throw ex; }
+                    catch(Exception ex) { partial=true; break; }
+                }
+                if(fullyRead) for(int i=sectionStart;i<result.items.length();i++) result.items.getJSONObject(i).put("chapterScanned",true);
+                if(requests>120) break;
+            }
+        } catch(Restricted ex) { result.restricted=true; partial=true; }
+        if(partial) { result.errors.add("部分章节无法读取或达到请求上限，测试列表可能不完整"); result.failedCourses.add(selectedKey+"|chapter"); }
+        return result;
+    }
     private static Result snapshot(Result source) {
         Result copy=new Result();
         for(int i=0;i<source.items.length();i++) copy.items.put(source.items.optJSONObject(i));
@@ -93,9 +139,12 @@ public final class HomeworkClient {
             return courses;
     }
     public Result fetch() throws Exception { return fetch(null); }
-    public Result fetch(java.util.Set<String> selected) throws Exception {
+    public Result fetch(java.util.Set<String> selected) throws Exception { return fetch(selected,new JSONArray()); }
+    public Result fetch(java.util.Set<String> selected,JSONArray previous) throws Exception {
         if(selected!=null && selected.isEmpty()) return new Result();
         if(pendingCourses==null) {
+            previousHomework=new java.util.HashMap<>();
+            for(int i=0;i<previous.length();i++) { JSONObject old=previous.optJSONObject(i); if(old!=null && !old.optString("id").isEmpty()) previousHomework.put(old.optString("id"),old); }
             pendingCourses=listCourses();
             nextCourse=0; completed=new Result();
             if(selected!=null) {
@@ -112,6 +161,7 @@ public final class HomeworkClient {
                 String params="courseid="+enc(c.id)+"&clazzid="+enc(c.clazz)+"&cpi="+enc(c.cpi);
                 String page=request("https://mooc1.chaoxing.com/visit/stucoursemiddle?"+params+"&ismooc2=1&v=2",null);
                 String work=HomeworkParser.hidden(page,"workEnc"), op=HomeworkParser.hidden(page,"openc"), stu=HomeworkParser.hidden(page,"enc");
+
                 try {
                 if(work.isEmpty() || stu.isEmpty()) throw new IOException("课程作业入口不可用");
                 int totalPages=1;
@@ -123,12 +173,19 @@ public final class HomeworkClient {
                 List<HomeworkParser.Item> items=HomeworkParser.all(list);
                 if(items.isEmpty() && !list.contains("goTask") && !list.contains("暂无") && !list.contains("没有作业") && !list.contains("0/0")) throw new IOException("作业列表格式无法识别");
                 for(HomeworkParser.Item item:items) {
+                    java.util.regex.Matcher workId=java.util.regex.Pattern.compile("[?&]workId=([^&]+)",java.util.regex.Pattern.CASE_INSENSITIVE).matcher(item.url);
+                    String identity=workId.find()?workId.group(1):(item.url.isEmpty()?"title:"+item.title:item.url);
+                    byte[] digest=java.security.MessageDigest.getInstance("SHA-256").digest((courseKey(c)+":"+identity).getBytes(StandardCharsets.UTF_8));
+                    StringBuilder id=new StringBuilder(); for(byte value:digest) id.append(String.format(java.util.Locale.ROOT,"%02x",value & 255));
+                    JSONObject prior=previousHomework.get(id.toString());
+                    boolean reuse=item.completed && !item.url.isEmpty() && prior!=null && courseKey(c).equals(prior.optString("courseKey"))
+                            && "homework".equals(prior.optString("kind","homework")) && !prior.optBoolean("stale",false) && prior.optBoolean("_display_done",TaskState.resolve(prior,"")==TaskState.DONE);
                     boolean peer=item.status.contains("互评") || item.status.contains("互評");
-                    boolean estimated=item.remainingMillis>=0 && !peer;
-                    long deadline=estimated?listFetchedAt+Math.max(60_000,item.remainingMillis):0; boolean detailFailed=false;
+                    boolean estimated=reuse?prior.optBoolean("estimated",false):item.remainingMillis>=0 && !peer;
+                    long deadline=reuse?prior.optLong("deadline",0):(estimated?listFetchedAt+Math.max(60_000,item.remainingMillis):0); boolean detailFailed=false;
                     if(!estimated && !item.completed && item.url.isEmpty()) { detailFailed=true; courseErrors.add(c.name+" / "+item.title+"：详情链接不可用"); }
                     boolean canReadDetail=!item.completed || isSafeCompletedDetail(item.url);
-                    if(!estimated && canReadDetail && !item.url.isEmpty()) try {
+                    if(!reuse && !estimated && canReadDetail && !item.url.isEmpty()) try {
                         String detailPage=request(item.url,null);
                         deadline=HomeworkParser.deadline(detailPage,System.currentTimeMillis(),item.status);
                         if(deadline==0 && !item.completed) { detailFailed=true; courseErrors.add(c.name+" / "+item.title+"：截止时间无法识别"); }
@@ -136,10 +193,6 @@ public final class HomeworkClient {
                     catch(Exception ex) { if(!item.completed) { detailFailed=true; courseErrors.add(c.name+" / "+item.title+"：详情读取失败"); } }
                     JSONObject record=new JSONObject();
                     record.put("course",c.name); record.put("title",item.title); record.put("status",item.status);
-                    java.util.regex.Matcher workId=java.util.regex.Pattern.compile("[?&]workId=([^&]+)",java.util.regex.Pattern.CASE_INSENSITIVE).matcher(item.url);
-                    String identity=workId.find()?workId.group(1):(item.url.isEmpty()?"title:"+item.title:item.url);
-                    byte[] digest=java.security.MessageDigest.getInstance("SHA-256").digest((courseKey(c)+":"+identity).getBytes(StandardCharsets.UTF_8));
-                    StringBuilder id=new StringBuilder(); for(byte value:digest) id.append(String.format(java.util.Locale.ROOT,"%02x",value & 255));
                     record.put("id",id.toString()); record.put("courseKey",courseKey(c)); record.put("deadline",deadline); record.put("detailFailed",detailFailed); record.put("estimated",estimated); record.put("completed",item.completed);
                     courseItems.put(record);
                 }
@@ -195,7 +248,7 @@ public final class HomeworkClient {
                 completed.failedCourses.add(courseKey(c)); completed.errors.add(c.name+"："+ex.getMessage());
             }
         }
-        Result result=snapshot(completed); pendingCourses=null; completed=null; nextCourse=0;
+        Result result=snapshot(completed); pendingCourses=null; completed=null; previousHomework=null; nextCourse=0;
         return result;
     }
     private static boolean isSafeCompletedDetail(String address) {
